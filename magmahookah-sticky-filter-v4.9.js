@@ -221,3 +221,230 @@
   window.addEventListener('pagehide', dispose);
   refresh();
 })();
+
+/*
+ * MAGMAHOOKAH — Sidebar cleanup
+ * Hide duplicate sidebar Sort by and its leftover bottom divider.
+ * The top-right product sorting control is untouched.
+ * Wait for Ecwid's asynchronously rendered filter before installing.
+ */
+(() => {
+  'use strict';
+
+  window.magmaSidebarCleanUndo?.();
+
+  const root = '.ec-filters.ec-filters--inline.ec-filters--left';
+  const saved = new Map();
+  const marked = new Set();
+  let stopped = false;
+  let frame = 0;
+  let scheduled = false;
+
+  const style = document.createElement('style');
+  style.id = 'magma-sidebar-sort-cleanup';
+  style.textContent = `
+    ${root} .magma-sort-gone {
+      display: none !important;
+    }
+
+    ${root} .magma-search-last {
+      border-bottom: 0 !important;
+    }
+
+    ${root} .magma-search-last::after {
+      content: none !important;
+      display: none !important;
+    }
+
+    ${root} .magma-end-divider::before,
+    ${root} .magma-end-divider::after {
+      content: none !important;
+      display: none !important;
+    }
+  `;
+  document.head.appendChild(style);
+
+  const text = s => (s || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+  function heading(panel, name) {
+    return [...panel.querySelectorAll('*')].find(el =>
+      [...el.childNodes].some(node =>
+        node.nodeType === 3 &&
+        text(node.textContent) === name
+      )
+    );
+  }
+
+  function branch(el, parent) {
+    while (
+      el &&
+      el.parentElement &&
+      el.parentElement !== parent
+    ) {
+      el = el.parentElement;
+    }
+    return el;
+  }
+
+  function override(el, property, value) {
+    if (!saved.has(el)) {
+      saved.set(el, el.getAttribute('style'));
+    }
+    el.style.setProperty(property, value, 'important');
+  }
+
+  function mark(el, name) {
+    el.classList.add(name);
+    marked.add(el);
+  }
+
+  function removeDivider(panel, search, input) {
+    const panelRect = panel.getBoundingClientRect();
+    const inputBottom =
+      (input || search).getBoundingClientRect().bottom;
+
+    const start = inputBottom + 8;
+    const end = panelRect.bottom - 10;
+    if (start >= end) return;
+
+    for (const el of panel.querySelectorAll('*')) {
+      if (
+        el.closest('.magma-sort-gone') ||
+        el === input
+      ) continue;
+
+      const rect = el.getBoundingClientRect();
+      if (rect.width < panelRect.width * 0.62) continue;
+
+      const topIn = rect.top >= start && rect.top <= end;
+      const bottomIn = rect.bottom >= start && rect.bottom <= end;
+      if (!topIn && !bottomIn) continue;
+
+      const css = getComputedStyle(el);
+      const topBorder =
+        topIn &&
+        parseFloat(css.borderTopWidth) > 0 &&
+        css.borderTopStyle !== 'none';
+
+      const bottomBorder =
+        bottomIn &&
+        parseFloat(css.borderBottomWidth) > 0 &&
+        css.borderBottomStyle !== 'none';
+
+      if (topBorder) override(el, 'border-top', '0');
+      if (bottomBorder) override(el, 'border-bottom', '0');
+      if (rect.height <= 3 && topIn) {
+        override(el, 'visibility', 'hidden');
+      }
+
+      if (
+        topBorder ||
+        bottomBorder ||
+        (rect.height <= 3 && topIn)
+      ) {
+        mark(el, 'magma-end-divider');
+      }
+    }
+  }
+
+  function apply() {
+    if (stopped) return;
+    const panel = document.querySelector(root);
+    if (!panel) return;
+
+    const sort = heading(panel, 'sort by');
+    const search = heading(panel, 'search by phrase');
+    if (!sort || !search) return;
+
+    let common = sort.parentElement;
+    while (common && !common.contains(search)) {
+      common = common.parentElement;
+    }
+    if (!common || common === panel.parentElement) return;
+
+    const sortGroup = branch(sort, common);
+    const searchGroup = branch(search, common);
+    if (!sortGroup || sortGroup === searchGroup) return;
+
+    const protectedNames = [
+      'refine by', 'brand', 'price',
+      'category', 'search by phrase'
+    ];
+
+    if (protectedNames.some(name => {
+      const h = heading(panel, name);
+      return h && sortGroup.contains(h);
+    })) return;
+
+    mark(sortGroup, 'magma-sort-gone');
+    mark(searchGroup, 'magma-search-last');
+
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      const livePanel = document.querySelector(root);
+      if (!livePanel || !livePanel.contains(search)) return;
+
+      const input = [...searchGroup.querySelectorAll('input')]
+        .find(el => /keyword|phrase/i.test(el.placeholder || ''));
+
+      removeDivider(livePanel, search, input);
+    });
+  }
+
+  const observer = new MutationObserver(() => {
+    if (scheduled || stopped) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      apply();
+    });
+  });
+
+  // In a custom Ecwid app the JS may execute before filters are created.
+  // Keep watching until Ecwid renders them, including category changes.
+  if (document.body) {
+    observer.observe(document.body, {childList: true, subtree: true});
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      if (!stopped) {
+        observer.observe(document.body, {childList: true, subtree: true});
+        apply();
+      }
+    }, {once: true});
+  }
+
+  const interval = setInterval(apply, 1000);
+  apply();
+
+  window.magmaSidebarCleanUndo = () => {
+    stopped = true;
+    observer.disconnect();
+    clearInterval(interval);
+    cancelAnimationFrame(frame);
+
+    marked.forEach(el => {
+      el.classList.remove(
+        'magma-sort-gone',
+        'magma-search-last',
+        'magma-end-divider'
+      );
+    });
+
+    saved.forEach((original, el) => {
+      if (original === null) {
+        el.removeAttribute('style');
+      } else {
+        el.setAttribute('style', original);
+      }
+    });
+
+    style.remove();
+    delete window.magmaSidebarCleanUndo;
+    console.info('[MAGMA] Sidebar cleanup removed.');
+  };
+
+  console.info('[MAGMA] Sidebar Sort by + divider cleanup installed.');
+})();
