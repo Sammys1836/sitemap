@@ -7,6 +7,7 @@
 
 
 
+
 /*
  * MAGMAHOOKAH — Sticky Filter v4.9, storefront install edition
  * Based on the V4.9 console test approved by store owner.
@@ -630,6 +631,141 @@
 
   if (document.body) start();
   else document.addEventListener('DOMContentLoaded', start, {once: true});
+})();
+
+/*
+ * MAGMAHOOKAH — Hide redundant Category filter on main Shisha Tobacco page
+ * Only Ecwid CATEGORY 191136590 (Hookah Tobacco & Shisha).
+ * Keep Brand, Price, Search, sidebar sticky v4.9, Category V2 on other pages.
+ * CSS-only visibility toggle: filters and product data are not changed.
+ * Add this AFTER the existing v4.9 + Sort cleanup + Category V2 blocks.
+ */
+(() => {
+  'use strict';
+
+  const KEY = '__magmaShishaRedundantCategoryV1';
+  window[KEY]?.dispose?.();
+
+  const SHISHA_CATEGORY_ID = 191136590;
+  const HTML_FLAG = 'magma-shisha-hide-duplicate-category';
+  const STYLE_ID = 'magma-shisha-hide-duplicate-category-style';
+  let disposed = false;
+  let subscribed = false;
+  let lastPage = null;
+  let poll = null;
+  let style = null;
+
+  function ensureStyle() {
+    if (disposed) return;
+    style = document.getElementById(STYLE_ID);
+    if (style) return;
+    style = document.createElement('style');
+    style.id = STYLE_ID;
+    style.textContent = `
+      html.${HTML_FLAG}
+      .ec-filters.ec-filters--inline.ec-filters--left
+      .ec-filter--category {
+        display: none !important;
+      }
+    `;
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  function showOrHide(categoryId, pageType) {
+    if (disposed) return;
+    ensureStyle();
+    const hide = pageType === 'CATEGORY' &&
+      Number(categoryId) === SHISHA_CATEGORY_ID;
+    document.documentElement.classList.toggle(HTML_FLAG, hide);
+  }
+
+  // Official Ecwid storefront API gives the exact category id (no URL guessing).
+  function onPageLoaded(page) {
+    if (disposed) return;
+    lastPage = page || null;
+    showOrHide(page?.categoryId, page?.type);
+  }
+
+  function onPageLoad() {
+    // Clear the flag promptly when navigating away from the Shisha category.
+    // OnPageLoaded sets it again once the destination is known.
+    if (!disposed) document.documentElement.classList.remove(HTML_FLAG);
+  }
+
+  function subscribe() {
+    if (disposed || subscribed) return;
+    const api = window.Ecwid;
+    if (!api?.OnPageLoaded || typeof api.OnPageLoaded.add !== 'function') {
+      return;
+    }
+    try {
+      api.OnPageLoaded.add(onPageLoaded);
+      api.OnPageLoad?.add?.(onPageLoad);
+      subscribed = true;
+    } catch (err) {
+      console.warn('[MAGMA] Shisha filter: Ecwid page listener unavailable.', err);
+    }
+  }
+
+  // If custom JS runs after Ecwid's first page event, use only an unambiguous
+  // current category URL or the category's exact on-page title as fallback.
+  // Never infer Shisha from navigation links, breadcrumbs, or product names.
+  function initialFallback() {
+    if (disposed || lastPage) return;
+    const href = window.location.href;
+    const id = href.match(/-c(\d+)(?=$|[/?#&])/i)?.[1];
+    if (id) {
+      showOrHide(id, 'CATEGORY');
+      return;
+    }
+
+    const title = document.querySelector(
+      '.ec-store.ec-store__category-page h1, ' +
+      '.ec-store.ec-store__category-page .ec-page-title'
+    );
+    const label = title?.textContent?.replace(/\s+/g, ' ').trim().toLowerCase();
+    if (label === 'hookah tobacco & shisha' ||
+        label === 'hookah tobacco and shisha') {
+      showOrHide(SHISHA_CATEGORY_ID, 'CATEGORY');
+    }
+  }
+
+  function start() {
+    if (disposed) return;
+    ensureStyle();
+    subscribe();
+    initialFallback();
+    poll = setInterval(() => {
+      if (!subscribed) subscribe();
+      if (!lastPage) initialFallback();
+    }, 1200);
+  }
+
+  function dispose() {
+    disposed = true;
+    if (poll) clearInterval(poll);
+    document.documentElement.classList.remove(HTML_FLAG);
+    // Ecwid may not support removing individual event listeners. The
+    // disposed guard makes callbacks from older injections inert.
+    style?.remove();
+    if (window[KEY]?.dispose === dispose) delete window[KEY];
+  }
+
+  window[KEY] = {
+    dispose,
+    status: () => ({
+      apiSubscribed: subscribed,
+      pageType: lastPage?.type || 'not-received',
+      categoryId: lastPage?.categoryId ?? null,
+      hideShishaCategory: document.documentElement.classList.contains(HTML_FLAG)
+    })
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, {once: true});
+  } else {
+    start();
+  }
 })();
 
 
