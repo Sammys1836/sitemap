@@ -1,8 +1,3 @@
-
-
-
-
-
 /*
  * MAGMAHOOKAH — Sticky Filter v4.9, storefront install edition
  * Based on the V4.9 console test approved by store owner.
@@ -629,8 +624,8 @@
 })();
 
 /*
- * MAGMAHOOKAH — Hide redundant Category filter on Shisha Tobacco and Hookahs
- * Only Ecwid categories 191136590 (Shisha) and 191486349 (Hookahs).
+ * MAGMAHOOKAH — Hide redundant Category filter on main Shisha Tobacco page
+ * Only Ecwid CATEGORY 191136590 (Hookah Tobacco & Shisha).
  * Keep Brand, Price, Search, sidebar sticky v4.9, Category V2 on other pages.
  * CSS-only visibility toggle: filters and product data are not changed.
  * Add this AFTER the existing v4.9 + Sort cleanup + Category V2 blocks.
@@ -641,7 +636,7 @@
   const KEY = '__magmaShishaRedundantCategoryV1';
   window[KEY]?.dispose?.();
 
-  const CATEGORY_IDS_WITH_DUPLICATE_FILTERS = new Set([191136590, 191486349]);
+  const SHISHA_CATEGORY_ID = 191136590;
   const HTML_FLAG = 'magma-shisha-hide-duplicate-category';
   const STYLE_ID = 'magma-shisha-hide-duplicate-category-style';
   let disposed = false;
@@ -670,7 +665,7 @@
     if (disposed) return;
     ensureStyle();
     const hide = pageType === 'CATEGORY' &&
-      CATEGORY_IDS_WITH_DUPLICATE_FILTERS.has(Number(categoryId));
+      Number(categoryId) === SHISHA_CATEGORY_ID;
     document.documentElement.classList.toggle(HTML_FLAG, hide);
   }
 
@@ -682,7 +677,7 @@
   }
 
   function onPageLoad() {
-    // Clear the flag promptly when navigating away from either targeted category.
+    // Clear the flag promptly when navigating away from the Shisha category.
     // OnPageLoaded sets it again once the destination is known.
     if (!disposed) document.documentElement.classList.remove(HTML_FLAG);
   }
@@ -704,7 +699,7 @@
 
   // If custom JS runs after Ecwid's first page event, use only an unambiguous
   // current category URL or the category's exact on-page title as fallback.
-  // Never infer a category from navigation links, breadcrumbs, or product names.
+  // Never infer Shisha from navigation links, breadcrumbs, or product names.
   function initialFallback() {
     if (disposed || lastPage) return;
     const href = window.location.href;
@@ -721,9 +716,7 @@
     const label = title?.textContent?.replace(/\s+/g, ' ').trim().toLowerCase();
     if (label === 'hookah tobacco & shisha' ||
         label === 'hookah tobacco and shisha') {
-      showOrHide(191136590, 'CATEGORY');
-    } else if (label === 'hookahs') {
-      showOrHide(191486349, 'CATEGORY');
+      showOrHide(SHISHA_CATEGORY_ID, 'CATEGORY');
     }
   }
 
@@ -754,7 +747,7 @@
       apiSubscribed: subscribed,
       pageType: lastPage?.type || 'not-received',
       categoryId: lastPage?.categoryId ?? null,
-      hideDuplicateCategory: document.documentElement.classList.contains(HTML_FLAG)
+      hideShishaCategory: document.documentElement.classList.contains(HTML_FLAG)
     })
   };
 
@@ -764,8 +757,3 @@
     start();
   }
 })();
-
-
-
-
-30
